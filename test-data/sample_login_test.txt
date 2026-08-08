@@ -1,0 +1,11 @@
+Test Case: Login with valid credentials
+
+Open https://example.com/login
+
+Enter "john@example.com" in the username field
+
+Enter "Password123" in the password field
+
+Click the Login button
+
+Verify that the Dashboard page is displayed

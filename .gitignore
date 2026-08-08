@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+venv/
+.pytest_cache/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Environment & secrets
+.env
+*.env.local
+
+# Database
+*.db
+*.db-journal
+*.db-wal
+
+# Screenshots (captured during runs)
+screenshots/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+temp_*.*
+server_out.txt
+server_err.txt
+server.log
+server_err.log
+
+# Playwright
+.ms-playwright/
