@@ -7,7 +7,7 @@ import ExecutionConsole from '../components/Execution/ExecutionConsole';
 import CompletionPopup from '../components/Execution/CompletionPopup';
 import { useSSE } from '../hooks/useSSE';
 import type { FileUploadResponse, ExecutionCreateResponse } from '../types';
-import { Play, Loader2 } from 'lucide-react';
+import { Play, Loader2, Monitor, MonitorOff } from 'lucide-react';
 
 export default function TestExecutionPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -17,6 +17,7 @@ export default function TestExecutionPage() {
   const [executing, setExecuting] = useState(false);
   const [error, setError] = useState('');
   const [showCompletion, setShowCompletion] = useState(false);
+  const [headless, setHeadless] = useState(false);
 
   const { events, connected, done, reset, addEvent } = useSSE(execution?.id ?? null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -107,7 +108,7 @@ export default function TestExecutionPage() {
       });
       setExecution(createRes.data);
 
-      await api.post(`/executions/${createRes.data.id}/execute`);
+      await api.post(`/executions/${createRes.data.id}/execute`, { headless });
       startPolling(createRes.data.id);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to start execution');
@@ -143,6 +144,42 @@ export default function TestExecutionPage() {
             totalSteps={parsed.total_steps}
             testCases={parsed.test_cases}
           />
+
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+            <h3 className="text-white font-semibold mb-3">Browser Mode</h3>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setHeadless(false)}
+                disabled={executing}
+                className={`flex-1 py-3 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 text-sm ${
+                  !headless
+                    ? 'bg-indigo-600 text-white border-2 border-indigo-400'
+                    : 'bg-gray-800 text-gray-400 border-2 border-gray-700 hover:border-gray-600'
+                }`}
+              >
+                <Monitor className="w-5 h-5" />
+                <div className="text-left">
+                  <div className="font-semibold">Headed Mode</div>
+                  <div className="text-xs opacity-70">See browser execution live</div>
+                </div>
+              </button>
+              <button
+                onClick={() => setHeadless(true)}
+                disabled={executing}
+                className={`flex-1 py-3 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 text-sm ${
+                  headless
+                    ? 'bg-indigo-600 text-white border-2 border-indigo-400'
+                    : 'bg-gray-800 text-gray-400 border-2 border-gray-700 hover:border-gray-600'
+                }`}
+              >
+                <MonitorOff className="w-5 h-5" />
+                <div className="text-left">
+                  <div className="font-semibold">Headless Mode</div>
+                  <div className="text-xs opacity-70">Run silently in background</div>
+                </div>
+              </button>
+            </div>
+          </div>
 
           <button
             onClick={handleExecute}

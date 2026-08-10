@@ -44,7 +44,7 @@ def _is_step_line(line: str) -> bool:
         "select", "choose", "verify", "check", "wait", "uncheck", "clear",
         "confirm", "assert", "ensure", "hover", "scroll", "double-click",
         "drag", "drop", "upload", "download", "switch", "close", "refresh",
-        "accept", "dismiss", "execute", "run",
+        "accept", "dismiss", "execute", "run", "login",
     ]
     return first_word in action_verbs
 
@@ -63,7 +63,7 @@ def parse_test_file(content: str, filename: str) -> List[ParsedTestCase]:
         "select", "choose", "verify", "check", "wait", "uncheck", "clear",
         "confirm", "assert", "ensure", "hover", "scroll", "double-click",
         "drag", "drop", "upload", "download", "switch", "close", "refresh",
-        "accept", "dismiss", "execute", "run",
+        "accept", "dismiss", "execute", "run", "login",
     ]
 
     for line in lines:

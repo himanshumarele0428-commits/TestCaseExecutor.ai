@@ -25,7 +25,10 @@ export default function ExecutionDetailPage() {
   if (loading) return <Loading message="Loading execution details..." />;
   if (!execution) return <p className="text-center text-red-400 py-20">Execution not found</p>;
 
-  const getScreenshotUrl = (stepId: string) => `/api/v1/screenshots/${execution.id}/${stepId}`;
+  const getScreenshotUrl = (stepId: string) => {
+    const token = localStorage.getItem('token');
+    return `/api/v1/screenshots/${execution.id}/${stepId}?token=${token}`;
+  };
 
   const StepRow = ({ step }: { step: StepResponse }) => (
     <div className="border-t border-gray-700/50 py-2">

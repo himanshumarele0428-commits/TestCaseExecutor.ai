@@ -67,7 +67,7 @@ class PlaywrightExecutor:
         self.db_session_factory = db_session_factory
         self.settings = get_settings()
 
-    async def execute(self, execution_id: str, plan: dict):
+    async def execute(self, execution_id: str, plan: dict, headless: bool = False):
         from playwright.async_api import async_playwright
 
         async with self.db_session_factory() as db:
@@ -92,7 +92,7 @@ class PlaywrightExecutor:
             blocked_count = 0
 
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=False)
+                browser = await p.chromium.launch(headless=headless)
                 context = await browser.new_context(
                     viewport={"width": 1280, "height": 720},
                     ignore_https_errors=True,
@@ -314,7 +314,7 @@ class PlaywrightExecutor:
             text = pw_action.get("text", "")
             await locator.click()
             await locator.fill("")
-            await locator.fill(text)
+            await locator.type(text, delay=30)
 
         elif method == "type_text":
             text = pw_action.get("text", "")

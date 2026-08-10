@@ -3,6 +3,10 @@ from typing import Optional, List
 from datetime import datetime
 
 
+class ExecutionModeRequest(BaseModel):
+    headless: bool = False
+
+
 class FileUploadResponse(BaseModel):
     filename: str
     test_cases: List[dict]

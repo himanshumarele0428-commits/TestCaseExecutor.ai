@@ -85,9 +85,12 @@ async def create_execution(
 async def execute_test_cases(
     execution_id: str,
     background_tasks: BackgroundTasks,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    body = await request.json() if await request.body() else {}
+    headless = body.get("headless", False)
     execution = await db.get(Execution, execution_id)
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found")
@@ -161,12 +164,12 @@ async def execute_test_cases(
     await db.commit()
 
     executor = PlaywrightExecutor(async_session)
-    background_tasks.add_task(executor.execute, execution_id, plan)
+    background_tasks.add_task(executor.execute, execution_id, plan, headless)
 
     return {
         "execution_id": execution_id,
         "status": "QUEUED",
-        "message": "Execution started. The browser will launch in headed mode.",
+        "message": f"Execution started in {'headless' if headless else 'headed'} mode.",
         "total_test_cases": len(plan_tcs),
     }
 
@@ -296,9 +299,12 @@ async def list_executions(
 async def rerun_execution(
     execution_id: str,
     background_tasks: BackgroundTasks,
+    mode_req: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    body = await mode_req.json() if await mode_req.body() else {}
+    headless = body.get("headless", False)
     execution = await db.get(Execution, execution_id)
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found")
@@ -372,7 +378,7 @@ async def rerun_execution(
     await db.commit()
 
     executor = PlaywrightExecutor(async_session)
-    background_tasks.add_task(executor.execute, new_execution.id, plan)
+    background_tasks.add_task(executor.execute, new_execution.id, plan, headless)
 
     return {
         "execution_id": new_execution.id,

@@ -12,19 +12,27 @@ logger = logging.getLogger(__name__)
 
 # Patterns ordered by specificity — first match wins
 PATTERNS = [
-    # "open <url>" / "navigate to <url>" / "go to <url>"
-    (re.compile(r'(?:open|navigate\s+to|go\s+to)\s+(https?://[^\s]+)', re.IGNORECASE),
+    # "open <url>" / "navigate to <url>" / "go to <url>" / "login to <url>"
+    (re.compile(r'(?:open|navigate\s+to|go\s+to|login\s+to)\s+(https?://[^\s]+)', re.IGNORECASE),
      lambda m: {"method": "goto", "url": m.group(1)}),
 
-    # "enter '<text>' in <field>" / "type '<text>' in <field>" / "fill <field> with '<text>'"
-    (re.compile(r'^(?:enter|type)\s+["' + "'" + r'"](.+?)["' + "'" + r'"]\s+(?:in|into)\s+(?:the\s+)?(.+)', re.IGNORECASE),
+    # "enter '<text>' in <field>" / "type '<text>' in <field>" (quoted)
+    (re.compile(r'^(?:enter|type|input)\s+["' + "'" + r'"](.+?)["' + "'" + r'"]\s+(?:in|into)\s+(?:the\s+)?(.+)', re.IGNORECASE),
      lambda m: {"method": "fill", "locator": _locator_for(m.group(2)), "text": m.group(1)}),
     (re.compile(r'^(?:fill|type)\s+(?:the\s+)?(.+?)\s+with\s+["' + "'" + r'"](.+?)["' + "'" + r'"]', re.IGNORECASE),
+     lambda m: {"method": "fill", "locator": _locator_for(m.group(1)), "text": m.group(2)}),
+
+    # "enter <field> as <value>" (field description first, then value after "as")
+    (re.compile(r'^(?:enter|type|input)\s+(?:the\s+)?(.+?)\s+as\s+(.+)$', re.IGNORECASE),
      lambda m: {"method": "fill", "locator": _locator_for(m.group(1)), "text": m.group(2)}),
 
     # "type '<text>'" (bare, use active element)
     (re.compile(r'^(?:enter|type|input)\s+["' + "'" + r'"](.+?)["' + "'" + r'"]\s*$', re.IGNORECASE),
      lambda m: {"method": "type_text", "text": m.group(1)}),
+
+    # "enter <value> in <field>" (unquoted, fallback)
+    (re.compile(r'^(?:enter|type|input)\s+(.+?)\s+(?:in|into)\s+(?:the\s+)?(.+)$', re.IGNORECASE),
+     lambda m: {"method": "fill", "locator": _locator_for(m.group(2)), "text": m.group(1)}),
 
     # "click <element>" / "click on <element>" / "click the <element>"
     (re.compile(r'^(?:double[-\s]?)?click\s+(?:on\s+)?(?:the\s+)?(.+)', re.IGNORECASE),
@@ -84,25 +92,66 @@ PATTERNS = [
 ]
 
 
+def _normalize_field_name(text: str) -> str:
+    """Normalize common field name variations to standard forms."""
+    lower = text.lower().strip()
+    replacements = {
+        "user name": "username",
+        "pass word": "password",
+        "first name": "first name",
+        "last name": "last name",
+        "phone number": "phone",
+        "zip code": "zip",
+    }
+    for key, val in replacements.items():
+        if key in lower:
+            # Swap the variation with standard form
+            text_lower = text.lower()
+            idx = text_lower.find(key)
+            if idx >= 0:
+                # Use the same casing pattern as original
+                text = text[:idx] + val + text[idx + len(key):]
+    return text
+
+
 def _locator_for(text: str) -> dict:
     """Determine the best locator strategy for an element description."""
     text = text.strip().rstrip(".")
+
+    # Strip leading article words
+    text = re.sub(r'^(the|a|an)\s+', '', text, flags=re.IGNORECASE)
 
     # If it contains quotes, treat as exact text
     quoted = re.match(r'^["' + "'" + r'"](.+?)["' + "'" + r'"]$', text)
     if quoted:
         return {"strategy": "text", "value": quoted.group(1)}
 
+    # Normalize common field name variations
+    normalized = _normalize_field_name(text)
+
     # Check for known field types
-    lower = text.lower()
+    lower = normalized.lower()
     for field_type, strategy in [
         ("button", "role"), ("link", "role"), ("checkbox", "role"),
         ("textbox", "role"), ("combobox", "role"), ("radio", "role"),
         ("password field", "placeholder"), ("username field", "placeholder"),
         ("email field", "placeholder"), ("search field", "placeholder"),
+        ("user name", "placeholder"), ("username", "placeholder"),
+        ("password", "placeholder"), ("email", "placeholder"),
+        ("search", "placeholder"), ("first name", "placeholder"),
+        ("last name", "placeholder"), ("phone", "placeholder"),
+        ("zip", "placeholder"), ("address", "placeholder"),
     ]:
         if field_type in lower:
-            val = text.replace(" field", "").replace(" Field", "")
+            val = normalized.replace(" field", "").replace(" Field", "")
+            if "button" in lower:
+                return {"strategy": "role", "value": "button", "name": val.replace(" button", "")}
+            if "link" in lower:
+                return {"strategy": "role", "value": "link", "name": val.replace(" link", "")}
+            if "checkbox" in lower:
+                return {"strategy": "role", "value": "checkbox", "name": val.replace(" checkbox", "")}
+            if "radio" in lower:
+                return {"strategy": "role", "value": "radio", "name": val.replace(" radio", "")}
             return {"strategy": strategy, "value": val}
 
     # If text looks like a specific label (contains "field", "dropdown", "input")
