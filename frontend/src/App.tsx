@@ -10,6 +10,8 @@ import TestExecutionPage from './pages/TestExecutionPage';
 import ExecutionHistoryPage from './pages/ExecutionHistoryPage';
 import ExecutionDetailPage from './pages/ExecutionDetailPage';
 import ScreenshotsPage from './pages/ScreenshotsPage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import AIConfigPage from './pages/AIConfigPage';
 
 function AppLayout() {
@@ -22,6 +24,8 @@ function AppLayout() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/execute" element={<TestExecutionPage />} />

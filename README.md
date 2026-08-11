@@ -9,6 +9,7 @@
   <img src="https://img.shields.io/badge/react-18-61dafb" alt="React">
   <img src="https://img.shields.io/badge/playwright-1.49-45ba4b" alt="Playwright">
   <img src="https://img.shields.io/badge/no%20AI%20key%20required-success" alt="No AI key">
+  <img src="https://img.shields.io/badge/forgot%20password-resend-blueviolet" alt="Forgot Password">
 </p>
 
 ---
@@ -135,6 +136,10 @@ Upload a file → steps are parsed and mapped → Playwright executes on a **rea
 
 ### Security
 - JWT-based authentication (bcrypt password hashing)
+- **Forgot Password / Reset Password** — Email-based password reset with Resend API (multi-provider cascade: SMTP → SendGrid → Resend)
+- UUID-based single-use reset tokens with 1-hour expiry
+- Dev-mode fallback: when email delivery is unavailable, the reset link is returned directly in the API response
+- User enumeration protection: forgot-password always returns the same generic message
 - Fernet-encrypted Groq API key storage (auto-generates valid key if config is broken)
 - User-scoped data access on all endpoints
 - SSE auth via query parameter (required for browser `EventSource` API)
@@ -150,7 +155,8 @@ Upload a file → steps are parsed and mapped → Playwright executes on a **rea
 |-------|-----------|
 | **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, React Router 6, Recharts, Axios, Lucide React |
 | **Backend** | Python 3.12, FastAPI, SQLAlchemy (async), SQLite/aiosqlite, Pydantic v2 |
-| **Auth** | JWT (python-jose), bcrypt (passlib), query-param fallback for SSE & images |
+| **Auth** | JWT (python-jose), bcrypt (passlib), uuid4 reset tokens, query-param fallback for SSE & images |
+| **Email** | Multi-provider dispatch (Resend → SendGrid → SMTP cascade), httpx for API calls |
 | **Step Mapping** | Regex-based direct mapper (19 patterns, 9 locator strategies) + heuristic fallback — no AI required |
 | **AI (Optional)** | Groq API (default: `llama-3.3-70b-versatile`) |
 | **Browser Automation** | Playwright for Python (async), Chromium headed/headless, Windows ProactorEventLoop |
@@ -178,9 +184,9 @@ Project34_TestCaseExecutor/
 │       ├── config.py                 # Pydantic settings from .env
 │       ├── database.py               # Async SQLAlchemy engine + session factory
 │       ├── auth/
-│       │   ├── models.py             # User model
-│       │   ├── schemas.py            # Register/Login/Token schemas
-│       │   ├── router.py             # POST /register, /login, GET /me
+│       │   ├── models.py             # User model (with reset_token fields)
+│       │   ├── schemas.py            # Register, Login, Token, ForgotPassword, ResetPassword schemas
+│       │   ├── router.py             # POST /register, /login, /forgot-password, /reset-password, GET /me
 │       │   ├── service.py            # Business logic (create user, authenticate)
 │       │   └── utils.py              # JWT, bcrypt, query-param + header dual auth for SSE, images & downloads
 │       ├── models/
@@ -200,7 +206,8 @@ Project34_TestCaseExecutor/
 │           ├── step_mapper.py        # Direct rule-based step-to-action engine (19 patterns + heuristic)
 │           ├── ai_planner.py         # Groq API planner (optional fallback)
 │           ├── playwright_service.py # PlaywrightExecutor + SSEManager with event replay
-│           └── encryption.py         # Fernet encrypt/decrypt (resilient to invalid keys)
+│           ├── encryption.py         # Fernet encrypt/decrypt (resilient to invalid keys)
+│           └── email_service.py      # Multi-provider email dispatch (Resend → SendGrid → SMTP cascade)
 │
 ├── frontend/
 │   ├── Dockerfile
@@ -209,14 +216,16 @@ Project34_TestCaseExecutor/
 │   ├── vite.config.ts                # Dev proxy to backend :8000
 │   └── src/
 │       ├── main.tsx                  # Root: BrowserRouter + App
-│       ├── App.tsx                   # 8 routes (login, signup, dashboard, execute, history, detail, screenshots, ai-config)
+│       ├── App.tsx                   # 10 routes (login, signup, forgot-password, reset-password, dashboard, execute, history, detail, screenshots, ai-config)
 │       ├── api/client.ts             # Axios with auth interceptors (token injection, 401 redirect)
 │       ├── types/index.ts            # 15 TypeScript interfaces
 │       ├── hooks/useSSE.ts           # SSE + polling fallback + done detection + reset
 │       ├── contexts/AuthContext.tsx   # Auth state + localStorage + loading guard (tri-state)
 │       ├── pages/
-│       │   ├── LoginPage.tsx          # Username/email + password login
+│       │   ├── LoginPage.tsx          # Username/email + password login with "Forgot password?" link
 │       │   ├── SignupPage.tsx         # Registration with validation
+│       │   ├── ForgotPasswordPage.tsx  # Email input → sends reset link; shows dev link if email unavailable
+│       │   ├── ResetPasswordPage.tsx   # Token from ?token= → set new password; redirects without token
 │       │   ├── DashboardPage.tsx      # Execution selector dropdown + 6 KPI cards + 3 charts + module table
 │       │   ├── TestExecutionPage.tsx   # Upload → Parse → Browser Mode → Execute → Live Progress → Complete
 │       │   ├── ExecutionHistoryPage.tsx # Paginated table with view/re-run/delete actions
@@ -309,14 +318,17 @@ Open **http://localhost:5173** in your browser.
 ## Usage Guide
 
 ### 1. Register & Login
-Navigate to `http://localhost:5173` → Sign Up → Login.
+Navigate to `http://localhost:5173` → Sign Up → Login. Use the **"Forgot password?"** link on the login page to reset your password via email.
 
-### 2. (Optional) Configure Groq API Key
+### 2. Configure Email for Password Reset (Optional)
+Set `RESEND_API_KEY` in `.env` to enable email delivery for the forgot password flow. Without it, the app falls back to showing the reset link directly in the UI. See [Configuration](#configuration) for all email provider options.
+
+### 3. (Optional) Configure Groq API Key
 Go to **AI Config** → enter your Groq API key → click **Save** → click **Test**.
 
 > **Skip this step to use the built-in direct step mapper.** The app works without an API key for supported test patterns.
 
-### 3. Write Test Cases
+### 4. Write Test Cases
 Create a `.txt` or `.md` file:
 
 ```text
@@ -360,13 +372,13 @@ Open https://example.com/login
 ...
 ```
 
-### 4. Upload & Execute
+### 5. Upload & Execute
 Go to **Test Execution** → drag & drop or browse to select your file → click **Upload & Parse** → choose **Headed Mode** or **Headless Mode** → click **Test Execute**.
 
 - **Headed Mode** — Chromium browser window opens and executes each step live. Watch the progress bar, console log, and completion popup.
 - **Headless Mode** — Execution runs silently in the background. Useful for CI/CD or headless servers.
 
-### 5. View Results
+### 6. View Results
 - **Dashboard** — Select an execution from the dropdown; KPI cards, charts, and module breakdown scope to that run
 - **History** — Paginated table with re-run (🔄) and delete (🗑️) options; click eye icon (👁) for full detail
 - **Execution Detail** — Expand test cases, view step-level results with inline screenshot preview
@@ -383,6 +395,8 @@ Go to **Test Execution** → drag & drop or browse to select your file → click
 | `POST` | `/api/v1/auth/register` | None | Register new user (full_name, username, email, password, confirm_password) |
 | `POST` | `/api/v1/auth/login` | None | Login, get JWT token (username_or_email, password) |
 | `GET` | `/api/v1/auth/me` | Bearer | Get current user profile |
+| `POST` | `/api/v1/auth/forgot-password` | None | Request password reset (`{email, origin}`). Returns `dev_reset_link` if email fails |
+| `POST` | `/api/v1/auth/reset-password` | None | Reset password using token (`{token, new_password}`) |
 
 ### Files
 | Method | Endpoint | Auth | Description |
@@ -446,6 +460,14 @@ All settings via `.env` file or environment variables:
 | `SCREENSHOTS_DIR` | `./screenshots` | Directory for screenshot images |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `1440` | JWT token expiry (24 hours) |
 | `FERNET_KEY` | (auto-generated if invalid) | Encryption key for stored API keys |
+| `FRONTEND_URL` | `http://localhost:5173` | Frontend origin for password reset email links |
+| `RESEND_API_KEY` | (empty) | Resend API key for email delivery |
+| `RESEND_FROM_EMAIL` | `Testcase Executor.AI <onboarding@resend.dev>` | Sender address for Resend emails |
+| `SMTP_HOST` | (empty) | SMTP server host (optional fallback) |
+| `SMTP_PORT` | `587` | SMTP port |
+| `SMTP_USERNAME` | (empty) | SMTP authentication username |
+| `SMTP_PASSWORD` | (empty) | SMTP authentication password |
+| `SENDGRID_API_KEY` | (empty) | SendGrid API key (optional fallback) |
 
 ---
 
@@ -479,8 +501,22 @@ Browser `<img>` tags cannot send `Authorization` headers, so screenshot image UR
 ### Fernet Key Resilience
 If the `FERNET_KEY` in `.env` is invalid, the encryption service auto-generates a valid key at runtime instead of crashing. A warning is logged when decryption fails due to key mismatch.
 
+### `.env` Loading
+The `config.py` walks up from `backend/app/config.py` to find `.env` in the project root. This means the backend can be started from the `backend/` directory and still read the root `.env` file. Environment variables set directly in the shell take precedence over `.env` values.
+
 ### Fail-Fast Per Test Case
 If a step fails, remaining steps in that test case are marked `SKIPPED`, but subsequent test cases continue to execute.
+
+### Forgot Password / Reset Password
+- User requests reset via `POST /api/v1/auth/forgot-password` with email and frontend origin
+- System generates a `uuid.uuid4()` token, stores it on the `User` model with a 1-hour expiry
+- Email dispatched via multi-provider cascade (Resend → SendGrid → SMTP); first success wins
+- **User enumeration protection**: always returns the same message regardless of whether the email exists
+- **Dev-mode fallback**: if no email provider is configured or delivery fails, the API returns `dev_reset_link` with the full reset URL so developers can copy-paste it
+- User clicks `{FRONTEND_URL}/reset-password?token={uuid}` → enters new password → token validated for existence + expiry → bcrypt hash replaces old password → token consumed (single-use, cleared on success)
+- `ResetPasswordPage` redirects to `/login` if no `?token=` is present
+- `LoginPage` includes a "Forgot password?" link pointing to `/forgot-password`
+- Resend free tier (`onboarding@resend.dev`) can only send to the Resend account owner's verified email; verify a domain at [resend.com/domains](https://resend.com/domains) to send to any recipient
 
 ### Auth Loading Guard (Tri-State)
 The `AuthContext` uses a `loading` flag that starts `true` when a stored token exists. `ProtectedRoute` blocks route evaluation until the `/auth/me` validation call settles via `.finally()`, preventing false-negative auth gaps on page refresh.
@@ -519,3 +555,10 @@ The `AuthContext` uses a `loading` flag that starts `true` when a stored token e
 ### Database issues
 - Delete `backend/testcase_executor.db` to reset the database
 - Tables are auto-created on startup
+
+### Password reset emails not arriving
+- Check that `RESEND_API_KEY`, `SMTP_HOST`, or `SENDGRID_API_KEY` is configured in `.env`
+- Without any provider configured, the API returns a `dev_reset_link` so you can reset directly
+- Resend free tier (`onboarding@resend.dev`) only delivers to your Resend account's verified email
+- Verify your Resend API key is valid at [resend.com/api-keys](https://resend.com/api-keys)
+- Debug: trigger forgot-password via the API and check the response for `dev_reset_link`

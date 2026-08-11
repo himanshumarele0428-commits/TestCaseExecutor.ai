@@ -67,6 +67,11 @@ export default function LoginPage() {
             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
             Sign In
           </button>
+          <div className="flex items-center justify-between text-sm">
+            <Link to="/forgot-password" className="text-indigo-400 hover:text-indigo-300">
+              Forgot password?
+            </Link>
+          </div>
           <p className="text-center text-gray-400 text-sm">
             Don't have an account?{' '}
             <Link to="/signup" className="text-indigo-400 hover:text-indigo-300">Sign up</Link>
