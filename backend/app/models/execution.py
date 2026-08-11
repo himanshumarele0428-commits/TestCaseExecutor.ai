@@ -23,6 +23,7 @@ class Execution(Base):
     started_at = Column(DateTime)
     completed_at = Column(DateTime)
     duration_seconds = Column(Float)
+    error_message = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
 
     test_cases = relationship("TestCase", back_populates="execution", order_by="TestCase.order_index")

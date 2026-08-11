@@ -6,6 +6,7 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
+  loading: boolean;
   login: (usernameOrEmail: string, password: string) => Promise<void>;
   register: (data: RegisterData) => Promise<void>;
   logout: () => void;
@@ -24,6 +25,7 @@ const AuthContext = createContext<AuthContextType | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+  const [loading, setLoading] = useState(!!localStorage.getItem('token'));
 
   useEffect(() => {
     if (token) {
@@ -39,7 +41,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+      }).finally(() => {
+        setLoading(false);
       });
+    } else {
+      setLoading(false);
     }
   }, []);
 
@@ -70,6 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         token,
+        loading,
         isAuthenticated: !!token && !!user,
         login: loginFn,
         register: registerFn,

@@ -120,30 +120,29 @@ async def execute_test_cases(
     )
 
     if unmapped_count > 0:
+        logger.warning(f"{unmapped_count} step(s) could not be directly mapped")
+
         groq_key = await _get_user_groq_key(db, current_user.id)
-        if not groq_key:
-            raise HTTPException(
-                status_code=400,
-                detail=f"{unmapped_count} step(s) could not be directly mapped and no Groq API key is configured. Please set a Groq key in AI Configuration.",
+        if groq_key:
+            settings = get_settings()
+            result = await db.execute(
+                select(ApiKey).where(ApiKey.user_id == current_user.id, ApiKey.is_active == True)
             )
+            api_key_row = result.scalar_one_or_none()
+            model = None
+            if api_key_row and api_key_row.model_name:
+                model = api_key_row.model_name
 
-        settings = get_settings()
-        result = await db.execute(
-            select(ApiKey).where(ApiKey.user_id == current_user.id, ApiKey.is_active == True)
-        )
-        api_key_row = result.scalar_one_or_none()
-        model = None
-        if api_key_row and api_key_row.model_name:
-            model = api_key_row.model_name
-
-        try:
-            parsed_list = [tc for tc in parsed]
-            plan = await generate_execution_plan(parsed_list, groq_key, model or settings.GROQ_MODEL)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            logger.error(f"Failed to generate execution plan: {e}")
-            raise HTTPException(status_code=500, detail=f"AI planning failed: {str(e)}")
+            try:
+                parsed_list = [tc for tc in parsed]
+                plan = await generate_execution_plan(parsed_list, groq_key, model or settings.GROQ_MODEL)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                logger.error(f"Failed to generate execution plan: {e}")
+                raise HTTPException(status_code=500, detail=f"AI planning failed: {str(e)}")
+        else:
+            logger.info("No Groq API key — proceeding with heuristic fallback mapping for all steps")
 
     execution.status = "QUEUED"
     execution.file_content = execution.file_content or ""
@@ -331,25 +330,25 @@ async def rerun_execution(
 
     if unmapped_count > 0:
         groq_key = await _get_user_groq_key(db, current_user.id)
-        if not groq_key:
-            raise HTTPException(status_code=400, detail="Some steps could not be directly mapped and no Groq API key is configured.")
+        if groq_key:
+            model = None
+            settings = get_settings()
+            api_key_result = await db.execute(
+                select(ApiKey).where(ApiKey.user_id == current_user.id, ApiKey.is_active == True)
+            )
+            api_key_row = api_key_result.scalar_one_or_none()
+            if api_key_row and api_key_row.model_name:
+                model = api_key_row.model_name
 
-        model = None
-        settings = get_settings()
-        api_key_result = await db.execute(
-            select(ApiKey).where(ApiKey.user_id == current_user.id, ApiKey.is_active == True)
-        )
-        api_key_row = api_key_result.scalar_one_or_none()
-        if api_key_row and api_key_row.model_name:
-            model = api_key_row.model_name
-
-        try:
-            plan = await generate_execution_plan(parsed_list, groq_key, model or settings.GROQ_MODEL)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            logger.error(f"Failed to generate execution plan: {e}")
-            raise HTTPException(status_code=500, detail=f"AI planning failed: {str(e)}")
+            try:
+                plan = await generate_execution_plan(parsed_list, groq_key, model or settings.GROQ_MODEL)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                logger.error(f"Failed to generate execution plan: {e}")
+                raise HTTPException(status_code=500, detail=f"AI planning failed: {str(e)}")
+        else:
+            logger.info("No Groq API key — proceeding with heuristic fallback mapping for rerun")
 
     new_execution = Execution(
         user_id=current_user.id,

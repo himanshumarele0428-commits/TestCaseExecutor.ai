@@ -113,7 +113,7 @@ export default function ExecutionHistoryPage() {
                             <Eye className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => handleRerun(executionId)}
+                            onClick={() => handleRerun(exec.id)}
                             disabled={rerunning === exec.id}
                             className="text-yellow-400 hover:text-yellow-300 p-1"
                             title="Re-run"

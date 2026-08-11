@@ -76,221 +76,239 @@ class PlaywrightExecutor:
                 logger.error(f"Execution {execution_id} not found")
                 return
 
-            execution.status = "RUNNING"
-            execution.started_at = datetime.now(timezone.utc)
-            await db.commit()
+            try:
+                execution.status = "RUNNING"
+                execution.started_at = datetime.now(timezone.utc)
+                await db.commit()
 
-            await SSEManager.emit(execution_id, {
-                "type": "execution_started",
-                "execution_id": execution_id,
-                "total_test_cases": len(plan.get("test_cases", [])),
-            })
+                await SSEManager.emit(execution_id, {
+                    "type": "execution_started",
+                    "execution_id": execution_id,
+                    "total_test_cases": len(plan.get("test_cases", [])),
+                })
 
-            plan_test_cases = plan.get("test_cases", [])
-            passed_count = 0
-            failed_count = 0
-            blocked_count = 0
+                plan_test_cases = plan.get("test_cases", [])
+                passed_count = 0
+                failed_count = 0
+                blocked_count = 0
 
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=headless)
-                context = await browser.new_context(
-                    viewport={"width": 1280, "height": 720},
-                    ignore_https_errors=True,
-                )
-
-                for tc_index, plan_tc in enumerate(plan_test_cases):
-                    tc_name = plan_tc.get("name", f"Test Case {tc_index + 1}")
-                    tc_module = plan_tc.get("module", "Default")
-
-                    tc_db = await db.execute(
-                        select(TestCase).where(
-                            TestCase.execution_id == execution_id,
-                            TestCase.order_index == tc_index,
-                        )
+                async with async_playwright() as p:
+                    browser = await p.chromium.launch(headless=headless)
+                    context = await browser.new_context(
+                        viewport={"width": 1280, "height": 720},
+                        ignore_https_errors=True,
                     )
-                    tc_db = tc_db.scalar_one_or_none()
 
-                    if not tc_db:
-                        tc_db = TestCase(
-                            execution_id=execution_id,
-                            name=tc_name,
-                            module=tc_module,
-                            order_index=tc_index,
-                            total_steps=len(plan_tc.get("steps", [])),
-                            status="RUNNING",
-                            started_at=datetime.now(timezone.utc),
+                    for tc_index, plan_tc in enumerate(plan_test_cases):
+                        tc_name = plan_tc.get("name", f"Test Case {tc_index + 1}")
+                        tc_module = plan_tc.get("module", "Default")
+
+                        tc_db = await db.execute(
+                            select(TestCase).where(
+                                TestCase.execution_id == execution_id,
+                                TestCase.order_index == tc_index,
+                            )
                         )
-                        db.add(tc_db)
-                        await db.flush()
+                        tc_db = tc_db.scalar_one_or_none()
 
-                    tc_db.status = "RUNNING"
-                    tc_db.started_at = datetime.now(timezone.utc)
-                    await db.commit()
+                        if not tc_db:
+                            tc_db = TestCase(
+                                execution_id=execution_id,
+                                name=tc_name,
+                                module=tc_module,
+                                order_index=tc_index,
+                                total_steps=len(plan_tc.get("steps", [])),
+                                status="RUNNING",
+                                started_at=datetime.now(timezone.utc),
+                            )
+                            db.add(tc_db)
+                            await db.flush()
 
-                    await SSEManager.emit(execution_id, {
-                        "type": "test_case_started",
-                        "test_case_index": tc_index,
-                        "test_case_name": tc_name,
-                        "total_steps": len(plan_tc.get("steps", [])),
-                    })
-
-                    page = await context.new_page()
-                    tc_failed = False
-                    steps_passed = 0
-                    steps_failed = 0
-
-                    for step_data in plan_tc.get("steps", []):
-                        step_order = step_data.get("order", 1)
-                        step_desc = step_data.get("description", "")
-                        intent = step_data.get("intent", "")
-                        pw_action = step_data.get("playwright_action", {})
-
-                        step_db = TestStep(
-                            test_case_id=tc_db.id,
-                            order_index=step_order,
-                            description=step_desc,
-                            intent=intent,
-                            target=step_data.get("target"),
-                            value=step_data.get("value"),
-                            playwright_action=json.dumps(pw_action),
-                            status="RUNNING",
-                            started_at=datetime.now(timezone.utc),
-                        )
-                        db.add(step_db)
-                        await db.flush()
+                        tc_db.status = "RUNNING"
+                        tc_db.started_at = datetime.now(timezone.utc)
+                        await db.commit()
 
                         await SSEManager.emit(execution_id, {
-                            "type": "step_started",
+                            "type": "test_case_started",
                             "test_case_index": tc_index,
-                            "step_order": step_order,
-                            "step_description": step_desc,
-                            "intent": intent,
+                            "test_case_name": tc_name,
+                            "total_steps": len(plan_tc.get("steps", [])),
                         })
 
-                        step_start = datetime.now(timezone.utc)
+                        page = await context.new_page()
+                        tc_failed = False
+                        steps_passed = 0
+                        steps_failed = 0
 
-                        try:
-                            await self._execute_step(page, pw_action, step_db)
+                        for step_data in plan_tc.get("steps", []):
+                            step_order = step_data.get("order", 1)
+                            step_desc = step_data.get("description", "")
+                            intent = step_data.get("intent", "")
+                            pw_action = step_data.get("playwright_action", {})
 
-                            step_db.status = "PASSED"
-                            steps_passed += 1
-
-                            duration = (datetime.now(timezone.utc) - step_start).total_seconds() * 1000
-                            step_db.duration_ms = duration
-                            step_db.completed_at = datetime.now(timezone.utc)
-
-                            screenshot_info = await self._capture_screenshot(
-                                page, execution_id, step_db.id, db
+                            step_db = TestStep(
+                                test_case_id=tc_db.id,
+                                order_index=step_order,
+                                description=step_desc,
+                                intent=intent,
+                                target=step_data.get("target"),
+                                value=step_data.get("value"),
+                                playwright_action=json.dumps(pw_action),
+                                status="RUNNING",
+                                started_at=datetime.now(timezone.utc),
                             )
+                            db.add(step_db)
+                            await db.flush()
 
                             await SSEManager.emit(execution_id, {
-                                "type": "step_completed",
+                                "type": "step_started",
                                 "test_case_index": tc_index,
                                 "step_order": step_order,
-                                "status": "PASSED",
-                                "screenshot_id": screenshot_info["id"],
-                                "screenshot_filename": screenshot_info["filename"],
-                                "duration_ms": duration,
+                                "step_description": step_desc,
+                                "intent": intent,
                             })
 
-                        except Exception as e:
-                            step_db.status = "FAILED"
-                            step_db.error_message = str(e)
-                            steps_failed += 1
-                            tc_failed = True
-
-                            duration = (datetime.now(timezone.utc) - step_start).total_seconds() * 1000
-                            step_db.duration_ms = duration
-                            step_db.completed_at = datetime.now(timezone.utc)
+                            step_start = datetime.now(timezone.utc)
 
                             try:
+                                await self._execute_step(page, pw_action, step_db)
+
+                                step_db.status = "PASSED"
+                                steps_passed += 1
+
+                                duration = (datetime.now(timezone.utc) - step_start).total_seconds() * 1000
+                                step_db.duration_ms = duration
+                                step_db.completed_at = datetime.now(timezone.utc)
+
                                 screenshot_info = await self._capture_screenshot(
                                     page, execution_id, step_db.id, db
                                 )
-                            except Exception:
-                                screenshot_info = None
 
-                            await SSEManager.emit(execution_id, {
-                                "type": "step_completed",
-                                "test_case_index": tc_index,
-                                "step_order": step_order,
-                                "status": "FAILED",
-                                "error": str(e),
-                                "screenshot_id": screenshot_info["id"] if screenshot_info else None,
-                                "screenshot_filename": screenshot_info["filename"] if screenshot_info else None,
-                                "duration_ms": duration,
-                            })
-
-                            for remaining in plan_tc.get("steps", [])[step_order:]:
-                                skip_db = TestStep(
-                                    test_case_id=tc_db.id,
-                                    order_index=remaining.get("order", step_order + 1),
-                                    description=remaining.get("description", ""),
-                                    intent=remaining.get("intent", ""),
-                                    target=remaining.get("target"),
-                                    value=remaining.get("value"),
-                                    playwright_action=json.dumps(remaining.get("playwright_action", {})),
-                                    status="SKIPPED",
-                                )
-                                db.add(skip_db)
                                 await SSEManager.emit(execution_id, {
                                     "type": "step_completed",
                                     "test_case_index": tc_index,
-                                    "step_order": remaining.get("order"),
-                                    "status": "SKIPPED",
+                                    "step_order": step_order,
+                                    "status": "PASSED",
+                                    "screenshot_id": screenshot_info["id"],
+                                    "screenshot_filename": screenshot_info["filename"],
+                                    "duration_ms": duration,
                                 })
-                            break
+
+                            except Exception as e:
+                                step_db.status = "FAILED"
+                                step_db.error_message = str(e)
+                                steps_failed += 1
+                                tc_failed = True
+
+                                duration = (datetime.now(timezone.utc) - step_start).total_seconds() * 1000
+                                step_db.duration_ms = duration
+                                step_db.completed_at = datetime.now(timezone.utc)
+
+                                try:
+                                    screenshot_info = await self._capture_screenshot(
+                                        page, execution_id, step_db.id, db
+                                    )
+                                except Exception:
+                                    screenshot_info = None
+
+                                await SSEManager.emit(execution_id, {
+                                    "type": "step_completed",
+                                    "test_case_index": tc_index,
+                                    "step_order": step_order,
+                                    "status": "FAILED",
+                                    "error": str(e),
+                                    "screenshot_id": screenshot_info["id"] if screenshot_info else None,
+                                    "screenshot_filename": screenshot_info["filename"] if screenshot_info else None,
+                                    "duration_ms": duration,
+                                })
+
+                                for remaining in plan_tc.get("steps", [])[step_order:]:
+                                    skip_db = TestStep(
+                                        test_case_id=tc_db.id,
+                                        order_index=remaining.get("order", step_order + 1),
+                                        description=remaining.get("description", ""),
+                                        intent=remaining.get("intent", ""),
+                                        target=remaining.get("target"),
+                                        value=remaining.get("value"),
+                                        playwright_action=json.dumps(remaining.get("playwright_action", {})),
+                                        status="SKIPPED",
+                                    )
+                                    db.add(skip_db)
+                                    await SSEManager.emit(execution_id, {
+                                        "type": "step_completed",
+                                        "test_case_index": tc_index,
+                                        "step_order": remaining.get("order"),
+                                        "status": "SKIPPED",
+                                    })
+                                break
+
+                            await db.commit()
+
+                        await page.close()
+
+                        tc_db.passed_steps = steps_passed
+                        tc_db.failed_steps = steps_failed
+                        tc_db.status = "FAILED" if tc_failed else "PASSED"
+                        tc_db.completed_at = datetime.now(timezone.utc)
+
+                        if tc_failed:
+                            failed_count += 1
+                        else:
+                            passed_count += 1
+
+                        await SSEManager.emit(execution_id, {
+                            "type": "test_case_completed",
+                            "test_case_index": tc_index,
+                            "test_case_name": tc_name,
+                            "status": tc_db.status,
+                            "passed": steps_passed,
+                            "failed": steps_failed,
+                        })
 
                         await db.commit()
 
-                    await page.close()
+                    await context.close()
+                    await browser.close()
 
-                    tc_db.passed_steps = steps_passed
-                    tc_db.failed_steps = steps_failed
-                    tc_db.status = "FAILED" if tc_failed else "PASSED"
-                    tc_db.completed_at = datetime.now(timezone.utc)
+                start_time = execution.started_at
+                end_time = datetime.now(timezone.utc)
+                duration = (end_time - start_time).total_seconds() if start_time else 0
 
-                    if tc_failed:
-                        failed_count += 1
-                    else:
-                        passed_count += 1
+                execution.status = "COMPLETED"
+                execution.passed = passed_count
+                execution.failed = failed_count
+                execution.blocked = blocked_count
+                execution.completed_at = end_time
+                execution.duration_seconds = duration
+                execution.total_test_cases = len(plan_test_cases)
+                await db.commit()
 
-                    await SSEManager.emit(execution_id, {
-                        "type": "test_case_completed",
-                        "test_case_index": tc_index,
-                        "test_case_name": tc_name,
-                        "status": tc_db.status,
-                        "passed": steps_passed,
-                        "failed": steps_failed,
-                    })
+                await SSEManager.emit(execution_id, {
+                    "type": "execution_completed",
+                    "execution_id": execution_id,
+                    "status": "COMPLETED",
+                    "passed": passed_count,
+                    "failed": failed_count,
+                    "blocked": blocked_count,
+                    "duration_seconds": duration,
+                })
 
-                    await db.commit()
-
-                await context.close()
-                await browser.close()
-
-            start_time = execution.started_at
-            end_time = datetime.now(timezone.utc)
-            duration = (end_time - start_time).total_seconds() if start_time else 0
-
-            execution.status = "COMPLETED"
-            execution.passed = passed_count
-            execution.failed = failed_count
-            execution.blocked = blocked_count
-            execution.completed_at = end_time
-            execution.duration_seconds = duration
-            execution.total_test_cases = len(plan_test_cases)
-            await db.commit()
-
-            await SSEManager.emit(execution_id, {
-                "type": "execution_completed",
-                "execution_id": execution_id,
-                "status": "COMPLETED",
-                "passed": passed_count,
-                "failed": failed_count,
-                "blocked": blocked_count,
-                "duration_seconds": duration,
-            })
+            except Exception as e:
+                logger.exception(f"Execution {execution_id} failed with error: {e}")
+                execution.status = "FAILED"
+                execution.error_message = str(e)
+                execution.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+                await SSEManager.emit(execution_id, {
+                    "type": "execution_completed",
+                    "execution_id": execution_id,
+                    "status": "FAILED",
+                    "passed": 0,
+                    "failed": 0,
+                    "blocked": 0,
+                    "error": str(e),
+                    "duration_seconds": 0,
+                })
 
             await SSEManager.cleanup(execution_id)
 
@@ -302,19 +320,19 @@ class PlaywrightExecutor:
             if not url:
                 raise ValueError("No URL provided for goto action")
             await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            await page.wait_for_load_state("networkidle")
 
         elif method == "reload":
             await page.reload(wait_until="domcontentloaded")
+            await page.wait_for_load_state("networkidle")
 
         elif method == "go_back":
             await page.go_back()
+            await page.wait_for_load_state("networkidle")
 
         elif method == "fill":
-            locator = self._resolve_locator(page, pw_action.get("locator", {}))
             text = pw_action.get("text", "")
-            await locator.click()
-            await locator.fill("")
-            await locator.type(text, delay=30)
+            await self._smart_fill(page, pw_action.get("locator", {}), text)
 
         elif method == "type_text":
             text = pw_action.get("text", "")
@@ -326,8 +344,7 @@ class PlaywrightExecutor:
             await locator.type(text, delay=50)
 
         elif method == "click":
-            locator = self._resolve_locator(page, pw_action.get("locator", {}))
-            await locator.click(timeout=10000)
+            await self._smart_click(page, pw_action.get("locator", {}))
 
         elif method == "dblclick":
             locator = self._resolve_locator(page, pw_action.get("locator", {}))
@@ -360,7 +377,83 @@ class PlaywrightExecutor:
 
         elif method == "assert_text_visible":
             text = pw_action.get("text", "")
-            await page.get_by_text(text).first.wait_for(state="visible", timeout=10000)
+            try:
+                await page.locator(f"text={text}").first.wait_for(state="visible", timeout=12000)
+            except Exception:
+                try:
+                    visible_text = await page.locator("body").inner_text()
+                    snippet = visible_text[:500] if len(visible_text) > 500 else visible_text
+                except Exception:
+                    snippet = "(could not read page content)"
+                raise AssertionError(
+                    f"Expected text '{text}' to be visible, but it was not found on the page. "
+                    f"Page visible text: {snippet[:300]}"
+                )
+
+        elif method == "assert_text_not_visible":
+            text = pw_action.get("text", "")
+            try:
+                await page.locator(f"text={text}").first.wait_for(state="visible", timeout=8000)
+                raise AssertionError(
+                    f"Expected text '{text}' to NOT be visible, but it IS currently visible on the page."
+                )
+            except AssertionError:
+                raise
+            except Exception:
+                pass
+
+        elif method == "assert_url_contains":
+            expected = pw_action.get("text", "")
+            current_url = page.url
+            if expected not in current_url:
+                raise AssertionError(
+                    f"Expected URL to contain '{expected}', but current URL is '{current_url}'"
+                )
+
+        elif method == "assert_url_equals":
+            expected = pw_action.get("text", "")
+            current_url = page.url
+            if expected != current_url:
+                raise AssertionError(
+                    f"Expected URL to be '{expected}', but current URL is '{current_url}'"
+                )
+
+        elif method == "assert_title_contains":
+            expected = pw_action.get("text", "")
+            try:
+                title = await page.title()
+            except Exception:
+                title = "(could not read page title)"
+            if expected.lower() not in title.lower():
+                raise AssertionError(
+                    f"Expected page title to contain '{expected}', but title is '{title}'"
+                )
+
+        elif method == "assert_title_equals":
+            expected = pw_action.get("text", "")
+            try:
+                title = await page.title()
+            except Exception:
+                title = "(could not read page title)"
+            if expected.lower() != title.lower():
+                raise AssertionError(
+                    f"Expected page title to be '{expected}', but title is '{title}'"
+                )
+
+        elif method == "assert_element_visible":
+            locator = self._resolve_locator(page, pw_action.get("locator", {}))
+            try:
+                await locator.wait_for(state="visible", timeout=12000)
+            except Exception:
+                try:
+                    visible_text = await page.locator("body").inner_text()
+                    snippet = visible_text[:500] if len(visible_text) > 500 else visible_text
+                except Exception:
+                    snippet = "(could not read page content)"
+                raise AssertionError(
+                    f"Expected element to be visible, but it was not found on the page. "
+                    f"Page visible text: {snippet[:300]}"
+                )
 
         elif method == "hover":
             locator = self._resolve_locator(page, pw_action.get("locator", {}))
@@ -372,6 +465,95 @@ class PlaywrightExecutor:
 
         else:
             raise ValueError(f"Unknown Playwright method: {method}")
+
+    async def _smart_fill(self, page, locator_info: dict, text: str):
+        """Try multiple locator strategies to find and fill a field."""
+        value = locator_info.get("value", "").strip() if locator_info else ""
+        strategies = []
+
+        if value:
+            lower_val = value.lower()
+            if "password" in lower_val:
+                strategies = [
+                    lambda: page.get_by_placeholder(value),
+                    lambda: page.get_by_label(value),
+                    lambda: page.locator(f"input[type='password']"),
+                    lambda: page.get_by_role("textbox", name=value),
+                ]
+            elif "user" in lower_val or "username" in lower_val or "email" in lower_val:
+                strategies = [
+                    lambda: page.get_by_placeholder(value),
+                    lambda: page.get_by_label(value),
+                    lambda: page.locator(f"input[type='text']"),
+                    lambda: page.locator(f"input[type='email']"),
+                    lambda: page.get_by_role("textbox", name=value),
+                ]
+            else:
+                strategies = [
+                    lambda: page.get_by_placeholder(value),
+                    lambda: page.get_by_label(value),
+                    lambda: page.get_by_role("textbox", name=value),
+                    lambda: page.locator(f"[name*='{value}']"),
+                ]
+
+        # Add fallback: just click focused element and type
+        strategies.append(lambda: None)
+
+        last_error = None
+        for strategy in strategies:
+            try:
+                locator = strategy()
+                if locator is None:
+                    # Last resort: type into whatever is focused (keyboard)
+                    await page.keyboard.type(text, delay=30)
+                    return
+                await locator.click(timeout=3000)
+                await locator.fill("")
+                await locator.type(text, delay=30)
+                return
+            except Exception as e:
+                last_error = e
+                continue
+
+        raise last_error or ValueError(f"Could not find field to fill with text '{text}'")
+
+    async def _smart_click(self, page, locator_info: dict):
+        """Try multiple locator strategies to find and click an element."""
+        value = locator_info.get("value", "").strip() if locator_info else ""
+        name = locator_info.get("name", "").strip() if locator_info else ""
+        strategy = locator_info.get("strategy", "text") if locator_info else "text"
+
+        search = name or value or ""
+        if not search:
+            raise ValueError("No element description provided for click action")
+
+        strategies = [
+            lambda: page.get_by_role("button", name=search),
+            lambda: page.get_by_text(search, exact=False),
+            lambda: page.get_by_role("link", name=search),
+            lambda: page.get_by_label(search),
+            lambda: page.get_by_placeholder(search),
+            lambda: page.get_by_test_id(search),
+            lambda: page.locator(f"text={search}"),
+            lambda: page.locator(f"button:has-text('{search}')"),
+            lambda: page.locator(f"a:has-text('{search}')"),
+        ]
+
+        last_error = None
+        for strategy_fn in strategies:
+            try:
+                locator = strategy_fn()
+                await locator.first.click(timeout=5000)
+                try:
+                    await page.wait_for_load_state("networkidle")
+                except Exception:
+                    pass
+                return
+            except Exception as e:
+                last_error = e
+                continue
+
+        raise last_error or ValueError(f"Could not find clickable element '{search}' on page")
 
     def _resolve_locator(self, page, locator_info: dict):
         strategy = locator_info.get("strategy", "text")

@@ -30,11 +30,15 @@ async def get_ai_config(
     api_key_row = result.scalar_one_or_none()
 
     if api_key_row:
+        try:
+            key_preview = mask_key(decrypt_value(api_key_row.encrypted_key))
+        except ValueError:
+            key_preview = "********  (re-enter key)"
         return {
             "configured": True,
             "provider": api_key_row.provider,
             "model": api_key_row.model_name,
-            "key_preview": mask_key(decrypt_value(api_key_row.encrypted_key)),
+            "key_preview": key_preview,
         }
     return {"configured": False, "provider": None, "model": None, "key_preview": None}
 

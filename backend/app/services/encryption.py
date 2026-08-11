@@ -1,6 +1,8 @@
-from cryptography.fernet import Fernet
+import logging
+from cryptography.fernet import Fernet, InvalidToken
 from app.config import get_settings
 
+logger = logging.getLogger(__name__)
 _generated_key: bytes | None = None
 
 
@@ -32,4 +34,8 @@ def encrypt_value(value: str) -> str:
 
 def decrypt_value(encrypted: str) -> str:
     f = Fernet(_get_or_create_key())
-    return f.decrypt(encrypted.encode()).decode()
+    try:
+        return f.decrypt(encrypted.encode()).decode()
+    except InvalidToken:
+        logger.warning("Failed to decrypt value: Fernet key may have changed")
+        raise ValueError("Encrypted value cannot be decrypted (key mismatch)")

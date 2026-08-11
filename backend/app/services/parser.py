@@ -28,6 +28,14 @@ class ParsedTestCase:
         self.steps: List[ParsedStep] = []
 
 
+def _strip_number_prefix(line: str) -> str:
+    """Remove number prefix from a step line: '1. Login' → 'Login', 'Step 3: click' → 'click'"""
+    match = re.match(r'^(?:\d+[\.\)]|Step\s+\d+\s*:)\s*(.+)', line, re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return line
+
+
 def _is_step_line(line: str) -> bool:
     """Check if a line looks like a test step."""
     stripped = line.strip()
@@ -44,7 +52,7 @@ def _is_step_line(line: str) -> bool:
         "select", "choose", "verify", "check", "wait", "uncheck", "clear",
         "confirm", "assert", "ensure", "hover", "scroll", "double-click",
         "drag", "drop", "upload", "download", "switch", "close", "refresh",
-        "accept", "dismiss", "execute", "run", "login",
+        "accept", "dismiss", "execute", "run", "login", "push",
     ]
     return first_word in action_verbs
 
@@ -63,7 +71,7 @@ def parse_test_file(content: str, filename: str) -> List[ParsedTestCase]:
         "select", "choose", "verify", "check", "wait", "uncheck", "clear",
         "confirm", "assert", "ensure", "hover", "scroll", "double-click",
         "drag", "drop", "upload", "download", "switch", "close", "refresh",
-        "accept", "dismiss", "execute", "run", "login",
+        "accept", "dismiss", "execute", "run", "login", "push",
     ]
 
     for line in lines:
@@ -84,15 +92,11 @@ def parse_test_file(content: str, filename: str) -> List[ParsedTestCase]:
             metadata_mode = True
             continue
 
-        # If we have orphan steps (steps before any test case header), collect them
-        if current_tc is None and _is_step_line(stripped):
-            # Collect orphan steps for auto-created "Default Test Case"
-            pass
-
         if current_tc is None:
-            # No test case yet — if line is a step, collect as orphan
             if _is_step_line(stripped):
-                orphan_steps.append(ParsedStep(order=len(orphan_steps) + 1, description=stripped))
+                # Strip number prefix from orphan step descriptions (e.g. "1. Login to..." → "Login to...")
+                desc = _strip_number_prefix(stripped)
+                orphan_steps.append(ParsedStep(order=len(orphan_steps) + 1, description=desc))
             continue
 
         if metadata_mode:

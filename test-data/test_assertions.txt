@@ -1,0 +1,19 @@
+Test Case: Login with invalid credentials
+Module: Authentication
+Priority: High
+
+Open http://localhost:5173/login
+Enter "wronguser" in the username field
+Enter "wrongpass" in the password field
+Click the Sign In button
+Verify that Invalid username is displayed
+
+Test Case: Login with valid credentials
+Module: Authentication
+Priority: High
+
+Open http://localhost:5173/login
+Enter "admin" in the username field
+Enter "admin123" in the password field
+Click the Sign In button
+Verify that Test Execution Dashboard is displayed
