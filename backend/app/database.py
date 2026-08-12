@@ -14,13 +14,20 @@ def _get_engine():
         if settings.DATABASE_URL.startswith("sqlite"):
             _engine = create_async_engine(settings.DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
         else:
+            if "postgresql" in settings.DATABASE_URL:
+                # Railway internal hostnames don't support SSL; public endpoints do.
+                if ".railway.internal" in settings.DATABASE_URL:
+                    connect_args = {}
+                else:
+                    connect_args = {"ssl": "require"}
             _engine = create_async_engine(
                 settings.DATABASE_URL,
                 echo=False,
-                pool_size=20,
+                pool_size=5,
                 max_overflow=10,
                 pool_pre_ping=True,
                 pool_recycle=300,
+                connect_args=connect_args,
             )
         _async_session = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
     return _engine
