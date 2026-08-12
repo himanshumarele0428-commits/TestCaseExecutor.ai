@@ -13,9 +13,16 @@ if sys.platform == "win32":
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
+    try:
+        await init_db()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Database init skipped: {e}")
     settings = get_settings()
-    os.makedirs(settings.SCREENSHOTS_DIR, exist_ok=True)
+    try:
+        os.makedirs(settings.SCREENSHOTS_DIR, exist_ok=True)
+    except OSError:
+        pass
     yield
 
 
