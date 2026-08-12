@@ -104,6 +104,19 @@ async def get_screenshot_file(
         raise HTTPException(status_code=404, detail="Screenshot not found")
 
     screenshot = screenshots[0]
+    settings = get_settings()
+    if settings.PLAYWRIGHT_SERVICE_URL:
+        import httpx
+        from fastapi.responses import Response
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{settings.PLAYWRIGHT_SERVICE_URL}/screenshots/{execution_id}/{step_id}",
+                headers={"X-Internal-Secret": settings.RAILWAY_INTERNAL_SECRET},
+            )
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=404, detail="Screenshot file not found on disk")
+        return Response(content=resp.content, media_type="image/png")
+
     if not os.path.exists(screenshot.filepath):
         raise HTTPException(status_code=404, detail="Screenshot file not found on disk")
 

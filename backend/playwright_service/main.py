@@ -633,8 +633,8 @@ async def trigger_execution(request: Request, db: AsyncSession = Depends(get_db)
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found")
 
-    from app.database import get_async_session as session_factory
-    executor = PlaywrightExecutor(session_factory)
+    from app.database import get_async_session
+    executor = PlaywrightExecutor(get_async_session())
     asyncio.create_task(executor.execute(execution_id, plan, headless))
 
     return {"status": "RUNNING", "execution_id": execution_id}
