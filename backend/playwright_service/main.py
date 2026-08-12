@@ -18,6 +18,10 @@ from app.models.execution import Execution, TestCase, TestStep, Screenshot
 logger = logging.getLogger(__name__)
 
 
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 class SSEManager:
     _queues: dict[str, asyncio.Queue] = {}
     _locks: dict[str, asyncio.Lock] = {}
@@ -80,7 +84,7 @@ class PlaywrightExecutor:
 
             try:
                 execution.status = "RUNNING"
-                execution.started_at = datetime.now(timezone.utc)
+                execution.started_at = _utcnow()
                 await db.commit()
 
                 await SSEManager.emit(execution_id, {
@@ -122,13 +126,13 @@ class PlaywrightExecutor:
                                 order_index=tc_index,
                                 total_steps=len(plan_tc.get("steps", [])),
                                 status="RUNNING",
-                                started_at=datetime.now(timezone.utc),
+                                started_at=_utcnow(),
                             )
                             db.add(tc_db)
                             await db.flush()
 
                         tc_db.status = "RUNNING"
-                        tc_db.started_at = datetime.now(timezone.utc)
+                        tc_db.started_at = _utcnow()
                         await db.commit()
 
                         await SSEManager.emit(execution_id, {
@@ -159,7 +163,7 @@ class PlaywrightExecutor:
                                 value=step_data.get("value"),
                                 playwright_action=json.dumps(pw_action),
                                 status="RUNNING",
-                                started_at=datetime.now(timezone.utc),
+                                started_at=_utcnow(),
                             )
                             db.add(step_db)
                             await db.flush()
@@ -172,16 +176,16 @@ class PlaywrightExecutor:
                                 "intent": intent,
                             })
 
-                            step_start = datetime.now(timezone.utc)
+                            step_start = _utcnow()
 
                             try:
                                 await self._execute_step(page, pw_action, step_db)
                                 step_db.status = "PASSED"
                                 steps_passed += 1
 
-                                duration = (datetime.now(timezone.utc) - step_start).total_seconds() * 1000
+                                duration = (_utcnow() - step_start).total_seconds() * 1000
                                 step_db.duration_ms = duration
-                                step_db.completed_at = datetime.now(timezone.utc)
+                                step_db.completed_at = _utcnow()
 
                                 screenshot_info = await self._capture_screenshot(page, execution_id, step_db.id, db)
 
@@ -201,9 +205,9 @@ class PlaywrightExecutor:
                                 steps_failed += 1
                                 tc_failed = True
 
-                                duration = (datetime.now(timezone.utc) - step_start).total_seconds() * 1000
+                                duration = (_utcnow() - step_start).total_seconds() * 1000
                                 step_db.duration_ms = duration
-                                step_db.completed_at = datetime.now(timezone.utc)
+                                step_db.completed_at = _utcnow()
 
                                 try:
                                     screenshot_info = await self._capture_screenshot(page, execution_id, step_db.id, db)
@@ -248,7 +252,7 @@ class PlaywrightExecutor:
                         tc_db.passed_steps = steps_passed
                         tc_db.failed_steps = steps_failed
                         tc_db.status = "FAILED" if tc_failed else "PASSED"
-                        tc_db.completed_at = datetime.now(timezone.utc)
+                        tc_db.completed_at = _utcnow()
 
                         if tc_failed:
                             failed_count += 1
@@ -270,7 +274,7 @@ class PlaywrightExecutor:
                     await browser.close()
 
                 start_time = execution.started_at
-                end_time = datetime.now(timezone.utc)
+                end_time = _utcnow()
                 duration = (end_time - start_time).total_seconds() if start_time else 0
 
                 execution.status = "COMPLETED"
@@ -296,7 +300,7 @@ class PlaywrightExecutor:
                 logger.exception(f"Execution {execution_id} failed: {e}")
                 execution.status = "FAILED"
                 execution.error_message = str(e)
-                execution.completed_at = datetime.now(timezone.utc)
+                execution.completed_at = _utcnow()
                 await db.commit()
                 await SSEManager.emit(execution_id, {
                     "type": "execution_completed",
@@ -582,7 +586,7 @@ class PlaywrightExecutor:
             execution_id=execution_id,
             filename=filename,
             filepath=filepath,
-            captured_at=datetime.now(timezone.utc),
+            captured_at=_utcnow(),
         )
         db.add(screenshot)
         await db.flush()
