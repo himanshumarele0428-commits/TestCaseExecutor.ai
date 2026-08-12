@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: testcase-executor-playwright
+    env: docker
+    dockerfilePath: backend/Dockerfile
+    envVars:
+      - key: DATABASE_URL
+        value: sqlite+aiosqlite:///./testcase_executor.db
+      - key: SECRET_KEY
+        generateValue: true
+      - key: SCREENSHOTS_DIR
+        value: /tmp/screenshots
+      - key: FRONTEND_URL
+        value: https://testcase-executor.vercel.app
+      - key: RAILWAY_INTERNAL_SECRET
+        generateValue: true
+    plan: free
