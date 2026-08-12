@@ -6,8 +6,9 @@ import ExecutionProgress from '../components/Execution/ExecutionProgress';
 import ExecutionConsole from '../components/Execution/ExecutionConsole';
 import CompletionPopup from '../components/Execution/CompletionPopup';
 import { useSSE } from '../hooks/useSSE';
+import RAILWAY_URL from '../config';
 import type { FileUploadResponse, ExecutionCreateResponse } from '../types';
-import { Play, Loader2, Monitor, MonitorOff } from 'lucide-react';
+import { Play, Loader2, Monitor, MonitorOff, ExternalLink } from 'lucide-react';
 
 export default function TestExecutionPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -17,7 +18,7 @@ export default function TestExecutionPage() {
   const [executing, setExecuting] = useState(false);
   const [error, setError] = useState('');
   const [showCompletion, setShowCompletion] = useState(false);
-  const [headless, setHeadless] = useState(true);
+  const [headless, setHeadless] = useState(false);
 
   const { events, connected, done, finalStatus, reset, addEvent } = useSSE(execution?.id ?? null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -197,6 +198,29 @@ export default function TestExecutionPage() {
               </>
             )}
           </button>
+
+          {executing && !headless && RAILWAY_URL && (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+              <div className="flex items-center justify-between p-3 border-b border-gray-800">
+                <h3 className="text-white font-semibold flex items-center gap-2">
+                  <Monitor className="w-4 h-4 text-indigo-400" /> Live Browser
+                </h3>
+                <a
+                  href={`${RAILWAY_URL}/browser`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-indigo-400 hover:text-indigo-300 text-xs flex items-center gap-1"
+                >
+                  Open in new tab <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+              <iframe
+                src={`${RAILWAY_URL}/browser`}
+                title="Live Browser"
+                className="w-full h-[480px] bg-black"
+              />
+            </div>
+          )}
 
           {execution && (
             <>

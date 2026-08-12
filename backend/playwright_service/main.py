@@ -4,9 +4,10 @@ import logging
 import os
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi import FastAPI, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import init_db, get_db
@@ -16,6 +17,10 @@ from app.auth.models import User
 from app.models.execution import Execution, TestCase, TestStep, Screenshot
 
 logger = logging.getLogger(__name__)
+
+NOVNC_DIR = os.environ.get("NOVNC_DIR", "/opt/novnc")
+VNC_HOST = os.environ.get("VNC_HOST", "localhost")
+VNC_PORT = int(os.environ.get("VNC_PORT", "5900"))
 
 
 def _utcnow() -> datetime:
@@ -74,7 +79,6 @@ class PlaywrightExecutor:
         self.settings = get_settings()
 
     async def execute(self, execution_id: str, plan: dict, headless: bool = True):
-        headless = True
         from playwright.async_api import async_playwright
 
         async with self.db_session_factory() as db:
@@ -620,6 +624,56 @@ async def health():
     return {"status": "ok", "service": "playwright-executor"}
 
 
+@app.get("/browser")
+async def browser_viewer():
+    viewer = os.path.join(os.path.dirname(__file__), "vnc_viewer.html")
+    return HTMLResponse(open(viewer, "r", encoding="utf-8").read())
+
+
+@app.websocket("/ws/vnc")
+async def vnc_websocket(websocket: WebSocket):
+    await websocket.accept()
+    reader = writer = None
+    try:
+        reader, writer = await asyncio.open_connection(VNC_HOST, VNC_PORT)
+    except Exception as e:
+        logger.error(f"VNC connect failed: {e}")
+        await websocket.close(code=1011)
+        return
+
+    async def ws_to_vnc():
+        try:
+            while True:
+                data = await websocket.receive_bytes()
+                writer.write(data)
+                await writer.drain()
+        except WebSocketDisconnect:
+            pass
+        except Exception:
+            pass
+        finally:
+            if writer:
+                writer.close()
+
+    async def vnc_to_ws():
+        try:
+            while True:
+                data = await reader.read(65536)
+                if not data:
+                    break
+                await websocket.send_bytes(data)
+        except Exception:
+            pass
+        finally:
+            await websocket.close()
+
+    await asyncio.gather(ws_to_vnc(), vnc_to_ws())
+
+
+if os.path.isdir(NOVNC_DIR):
+    app.mount("/novnc", StaticFiles(directory=NOVNC_DIR), name="novnc")
+
+
 @app.post("/execute")
 async def trigger_execution(request: Request, db: AsyncSession = Depends(get_db)):
     internal_secret = request.headers.get("X-Internal-Secret", "")
@@ -629,8 +683,7 @@ async def trigger_execution(request: Request, db: AsyncSession = Depends(get_db)
     body = await request.json()
     execution_id = body.get("execution_id")
     plan = body.get("plan", {})
-    # Railway has no X server / display, so headed mode cannot work here.
-    headless = True
+    headless = body.get("headless", False)
 
     if not execution_id:
         raise HTTPException(status_code=400, detail="execution_id is required")
