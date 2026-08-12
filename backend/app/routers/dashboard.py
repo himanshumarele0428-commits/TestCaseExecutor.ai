@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, Date
 from app.database import get_db
 from app.auth.utils import get_current_user
 from app.auth.models import User
@@ -86,17 +86,17 @@ async def get_execution_trend(
 
     result = await db.execute(
         select(
-            func.substr(Execution.created_at, 1, 10).label("date"),
+            func.cast(Execution.created_at, Date).label("date"),
             func.count(Execution.id).label("executed"),
             func.coalesce(func.sum(Execution.passed), 0).label("passed"),
             func.coalesce(func.sum(Execution.failed), 0).label("failed"),
         )
         .where(
             Execution.user_id == current_user.id,
-            Execution.created_at >= thirty_days_ago.isoformat(),
+            Execution.created_at >= thirty_days_ago,
         )
-        .group_by(func.substr(Execution.created_at, 1, 10))
-        .order_by(func.substr(Execution.created_at, 1, 10))
+        .group_by(func.cast(Execution.created_at, Date))
+        .order_by(func.cast(Execution.created_at, Date))
     )
 
     trends = []

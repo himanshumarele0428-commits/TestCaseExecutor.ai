@@ -81,6 +81,7 @@ class Screenshot(Base):
     execution_id = Column(String(36), ForeignKey("executions.id", ondelete="CASCADE"), nullable=False)
     filename = Column(String(255), nullable=False)
     filepath = Column(String(500), nullable=False)
+    external_url = Column(String(500), nullable=True)
     captured_at = Column(DateTime, server_default=func.now())
 
     step = relationship("TestStep", back_populates="screenshots")

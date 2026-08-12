@@ -39,7 +39,10 @@ export function useSSE(executionId: string | null) {
     const token = localStorage.getItem('token');
     if (!token) return;
 
-    const url = `/api/v1/executions/${executionId}/stream?token=${token}`;
+    const railwayUrl = import.meta.env.VITE_RAILWAY_URL || '';
+    const url = railwayUrl
+      ? `${railwayUrl}/sse/${executionId}?token=${token}`
+      : `/api/v1/executions/${executionId}/stream?token=${token}`;
     const es = new EventSource(url);
     sourceRef.current = es;
 

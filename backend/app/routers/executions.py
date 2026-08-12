@@ -8,13 +8,12 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
 from app.database import get_db, async_session
-from app.auth.utils import get_current_user, get_current_user_from_query
+from app.auth.utils import get_current_user
 from app.auth.models import User
 from app.models.execution import Execution, TestCase, TestStep, Screenshot
 from app.models.api_key import ApiKey
 from app.services.parser import parse_test_file
 from app.services.ai_planner import generate_execution_plan
-from app.services.playwright_service import PlaywrightExecutor, SSEManager
 from app.services.encryption import decrypt_value
 from app.config import get_settings
 
@@ -162,6 +161,30 @@ async def execute_test_cases(
 
     await db.commit()
 
+    settings = get_settings()
+    plan_tcs = plan.get("test_cases", [])
+
+    if settings.PLAYWRIGHT_SERVICE_URL:
+        import httpx
+        async with httpx.AsyncClient(timeout=30) as client:
+            await client.post(
+                f"{settings.PLAYWRIGHT_SERVICE_URL}/execute",
+                json={
+                    "execution_id": execution_id,
+                    "plan": plan,
+                    "headless": headless,
+                },
+                headers={"X-Internal-Secret": settings.RAILWAY_INTERNAL_SECRET},
+            )
+
+        return {
+            "execution_id": execution_id,
+            "status": "QUEUED",
+            "sse_url": f"{settings.PLAYWRIGHT_SERVICE_URL}/sse/{execution_id}",
+            "total_test_cases": len(plan_tcs),
+        }
+
+    from app.services.playwright_service import PlaywrightExecutor
     executor = PlaywrightExecutor(async_session)
     background_tasks.add_task(executor.execute, execution_id, plan, headless)
 
@@ -376,6 +399,29 @@ async def rerun_execution(
 
     await db.commit()
 
+    settings = get_settings()
+
+    if settings.PLAYWRIGHT_SERVICE_URL:
+        import httpx
+        async with httpx.AsyncClient(timeout=30) as client:
+            await client.post(
+                f"{settings.PLAYWRIGHT_SERVICE_URL}/execute",
+                json={
+                    "execution_id": new_execution.id,
+                    "plan": plan,
+                    "headless": headless,
+                },
+                headers={"X-Internal-Secret": settings.RAILWAY_INTERNAL_SECRET},
+            )
+
+        return {
+            "execution_id": new_execution.id,
+            "status": "QUEUED",
+            "sse_url": f"{settings.PLAYWRIGHT_SERVICE_URL}/sse/{new_execution.id}",
+            "total_test_cases": len(plan["test_cases"]),
+        }
+
+    from app.services.playwright_service import PlaywrightExecutor
     executor = PlaywrightExecutor(async_session)
     background_tasks.add_task(executor.execute, new_execution.id, plan, headless)
 
@@ -426,8 +472,31 @@ async def delete_execution(
 async def stream_execution(
     execution_id: str,
     request: Request,
-    current_user: User = Depends(get_current_user_from_query),
 ):
+    token = request.query_params.get("token", "")
+    if not token:
+        raise HTTPException(status_code=401)
+
+    from app.services.playwright_service import SSEManager
+    from jose import jwt, JWTError
+    from app.auth.models import User
+
+    settings = get_settings()
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        user_id = payload.get("sub")
+    except JWTError:
+        raise HTTPException(status_code=401)
+
+    user = None
+    async for db_session in get_db():
+        async with db_session as session:
+            result = await session.execute(select(User).where(User.id == int(user_id)))
+            user = result.scalar_one_or_none()
+        break
+    if not user:
+        raise HTTPException(status_code=401)
+
     async def event_generator():
         async for event in SSEManager.subscribe(execution_id):
             if await request.is_disconnected():

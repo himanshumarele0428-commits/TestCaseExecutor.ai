@@ -1,0 +1,15 @@
+fastapi==0.115.6
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+pydantic==2.10.4
+pydantic-settings==2.7.1
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+python-multipart==0.0.20
+groq==0.15.0
+aiofiles==24.1.0
+httpx==0.28.1
+email-validator==2.3.0
+cryptography==44.0.0
+mangum==0.17.0

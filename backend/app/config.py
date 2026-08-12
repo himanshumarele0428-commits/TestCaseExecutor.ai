@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     SCREENSHOTS_DIR: str = "./screenshots"
     FERNET_KEY: str = "ZmVybmV0LWtleS1mb3ItZGV2ZWxvcG1lbnQtb25seQ=="
 
+    PLAYWRIGHT_SERVICE_URL: str = ""
+    RAILWAY_INTERNAL_SECRET: str = ""
+
     FRONTEND_URL: str = "http://localhost:5173"
     RESEND_API_KEY: str = ""
     RESEND_FROM_EMAIL: str = "Testcase Executor.AI <onboarding@resend.dev>"

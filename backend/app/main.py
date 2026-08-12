@@ -3,7 +3,6 @@ import sys
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from app.database import init_db
 from app.config import get_settings
 import os
@@ -27,9 +26,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+settings = get_settings()
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[settings.FRONTEND_URL],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,11 +49,6 @@ app.include_router(executions_router, prefix="/api/v1/executions", tags=["Execut
 app.include_router(dashboard_router, prefix="/api/v1/dashboard", tags=["Dashboard"])
 app.include_router(screenshots_router, prefix="/api/v1/screenshots", tags=["Screenshots"])
 app.include_router(ai_config_router, prefix="/api/v1/ai-config", tags=["AI Config"])
-
-settings = get_settings()
-screenshots_path = os.path.abspath(settings.SCREENSHOTS_DIR)
-os.makedirs(screenshots_path, exist_ok=True)
-app.mount("/api/v1/screenshots-files", StaticFiles(directory=screenshots_path), name="screenshots-files")
 
 
 @app.get("/api/health")

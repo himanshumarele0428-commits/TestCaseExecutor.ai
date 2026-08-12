@@ -53,6 +53,10 @@ export default function ScreenshotsPage() {
 
   const getScreenshotUrl = (executionId: string, stepId: string) => {
     const token = localStorage.getItem('token');
+    const railwayUrl = import.meta.env.VITE_RAILWAY_URL || '';
+    if (railwayUrl) {
+      return `${railwayUrl}/screenshots/${executionId}/${stepId}?token=${token}`;
+    }
     return `/api/v1/screenshots/${executionId}/${stepId}?token=${token}`;
   };
 
