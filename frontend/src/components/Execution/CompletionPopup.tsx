@@ -9,16 +9,19 @@ interface Props {
   onClose: () => void;
   executionId: string;
   events: SSEEvent[];
+  finalStatus: string | null;
 }
 
-export default function CompletionPopup({ open, onClose, executionId, events }: Props) {
+export default function CompletionPopup({ open, onClose, executionId, events, finalStatus }: Props) {
   const navigate = useNavigate();
   const finalEvent = events.find((e) => e.type === 'execution_completed');
   const passed = finalEvent?.passed ?? 0;
   const failed = finalEvent?.failed ?? 0;
   const duration = finalEvent?.duration_seconds ?? 0;
+  const error = finalEvent?.error;
+  const isInfraFailure = finalStatus === 'FAILED';
   const total = passed + failed;
-  const allPassed = failed === 0 && passed > 0;
+  const allPassed = !isInfraFailure && failed === 0 && passed > 0;
 
   const handleExport = async () => {
     try {
@@ -37,7 +40,7 @@ export default function CompletionPopup({ open, onClose, executionId, events }: 
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Test Execution Completed" size="sm">
+    <Modal open={open} onClose={onClose} title={isInfraFailure ? 'Test Execution Failed' : 'Test Execution Completed'} size="sm">
       <div className="text-center space-y-4">
         {allPassed ? (
           <CheckCircle className="w-12 h-12 text-green-400 mx-auto" />
@@ -46,10 +49,16 @@ export default function CompletionPopup({ open, onClose, executionId, events }: 
         )}
         <div>
           <p className="text-white text-lg font-semibold">
-            {allPassed ? 'All tests passed!' : 'Test execution completed'}
+            {allPassed ? 'All tests passed!' : isInfraFailure ? 'Execution could not be completed' : 'Test execution completed'}
           </p>
           <p className="text-gray-400 text-sm mt-1">Execution ID: {executionId}</p>
         </div>
+
+        {isInfraFailure && error && (
+          <div className="bg-red-900/20 border border-red-800 rounded-lg p-3">
+            <p className="text-red-300 text-xs break-words">{error}</p>
+          </div>
+        )}
 
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-gray-800 rounded-lg p-3">

@@ -5,6 +5,7 @@ export function useSSE(executionId: string | null) {
   const [events, setEvents] = useState<SSEEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const [done, setDone] = useState(false);
+  const [finalStatus, setFinalStatus] = useState<string | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
   const mountedRef = useRef(false);
   const doneRef = useRef(false);
@@ -16,6 +17,7 @@ export function useSSE(executionId: string | null) {
       doneRef.current = true;
       setDone(true);
       setConnected(false);
+      setFinalStatus(event.status ?? null);
     }
   }, []);
 
@@ -26,6 +28,7 @@ export function useSSE(executionId: string | null) {
     setEvents([]);
     setConnected(false);
     setDone(false);
+    setFinalStatus(null);
   }, []);
 
   useEffect(() => {
@@ -71,5 +74,5 @@ export function useSSE(executionId: string | null) {
     };
   }, [executionId, addEvent]);
 
-  return { events, connected, done, reset, addEvent };
+  return { events, connected, done, finalStatus, reset, addEvent };
 }

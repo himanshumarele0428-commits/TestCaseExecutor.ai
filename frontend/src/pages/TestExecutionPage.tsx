@@ -17,9 +17,9 @@ export default function TestExecutionPage() {
   const [executing, setExecuting] = useState(false);
   const [error, setError] = useState('');
   const [showCompletion, setShowCompletion] = useState(false);
-  const [headless, setHeadless] = useState(false);
+  const [headless, setHeadless] = useState(true);
 
-  const { events, connected, done, reset, addEvent } = useSSE(execution?.id ?? null);
+  const { events, connected, done, finalStatus, reset, addEvent } = useSSE(execution?.id ?? null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const startPolling = (execId: string) => {
@@ -31,6 +31,7 @@ export default function TestExecutionPage() {
           addEvent({
             type: 'execution_completed',
             execution_id: execId,
+            status,
             passed: res.data.passed,
             failed: res.data.failed,
             blocked: res.data.blocked ?? 0,
@@ -203,6 +204,7 @@ export default function TestExecutionPage() {
                 events={events}
                 connected={connected}
                 done={done}
+                finalStatus={finalStatus}
                 totalTestCases={execution.total_test_cases}
               />
               <ExecutionConsole events={events} />
@@ -216,6 +218,7 @@ export default function TestExecutionPage() {
         onClose={() => setShowCompletion(false)}
         executionId={execution?.id ?? ''}
         events={events}
+        finalStatus={finalStatus}
       />
     </div>
   );

@@ -74,6 +74,7 @@ class PlaywrightExecutor:
         self.settings = get_settings()
 
     async def execute(self, execution_id: str, plan: dict, headless: bool = True):
+        headless = True
         from playwright.async_api import async_playwright
 
         async with self.db_session_factory() as db:
@@ -628,7 +629,8 @@ async def trigger_execution(request: Request, db: AsyncSession = Depends(get_db)
     body = await request.json()
     execution_id = body.get("execution_id")
     plan = body.get("plan", {})
-    headless = body.get("headless", True)
+    # Railway has no X server / display, so headed mode cannot work here.
+    headless = True
 
     if not execution_id:
         raise HTTPException(status_code=400, detail="execution_id is required")
