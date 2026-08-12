@@ -3,7 +3,8 @@
   "outputDirectory": "frontend/dist",
   "installCommand": "pip install --break-system-packages -r backend/requirements-vercel.txt",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index" }
+    { "source": "/api/(.*)", "destination": "/api/index" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "functions": {
     "api/index.py": {
