@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
-from app.database import get_db, async_session
+from app.database import get_db, get_async_session
 from app.auth.utils import get_current_user
 from app.auth.models import User
 from app.models.execution import Execution, TestCase, TestStep, Screenshot
@@ -185,7 +185,7 @@ async def execute_test_cases(
         }
 
     from app.services.playwright_service import PlaywrightExecutor
-    executor = PlaywrightExecutor(async_session)
+    executor = PlaywrightExecutor(get_async_session())
     background_tasks.add_task(executor.execute, execution_id, plan, headless)
 
     return {
@@ -422,7 +422,7 @@ async def rerun_execution(
         }
 
     from app.services.playwright_service import PlaywrightExecutor
-    executor = PlaywrightExecutor(async_session)
+    executor = PlaywrightExecutor(get_async_session())
     background_tasks.add_task(executor.execute, new_execution.id, plan, headless)
 
     return {

@@ -44,3 +44,4 @@ server_err.log
 
 # Playwright
 .ms-playwright/
+.vercel
