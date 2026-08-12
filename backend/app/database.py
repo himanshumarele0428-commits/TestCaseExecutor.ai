@@ -11,17 +11,19 @@ def _get_engine():
     if _engine is None:
         settings = get_settings()
         connect_args = {}
-        if settings.DATABASE_URL.startswith("sqlite"):
-            _engine = create_async_engine(settings.DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
+        db_url = settings.DATABASE_URL
+        if db_url.startswith("sqlite"):
+            _engine = create_async_engine(db_url, echo=False, connect_args={"check_same_thread": False})
         else:
-            if "postgresql" in settings.DATABASE_URL:
-                # Railway internal hostnames don't support SSL; public endpoints do.
-                if ".railway.internal" in settings.DATABASE_URL:
+            if db_url.startswith("postgresql://"):
+                db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            if "postgresql" in db_url:
+                if ".railway.internal" in db_url:
                     connect_args = {}
                 else:
                     connect_args = {"ssl": "require"}
             _engine = create_async_engine(
-                settings.DATABASE_URL,
+                db_url,
                 echo=False,
                 pool_size=5,
                 max_overflow=10,
