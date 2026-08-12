@@ -3,11 +3,11 @@ import logging
 import csv
 import io
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
-from app.database import get_db, get_async_session
+from app.database import get_db
 from app.auth.utils import get_current_user
 from app.auth.models import User
 from app.models.execution import Execution, TestCase, TestStep, Screenshot
@@ -83,7 +83,6 @@ async def create_execution(
 @router.post("/{execution_id}/execute")
 async def execute_test_cases(
     execution_id: str,
-    background_tasks: BackgroundTasks,
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -164,10 +163,20 @@ async def execute_test_cases(
     settings = get_settings()
     plan_tcs = plan.get("test_cases", [])
 
-    if settings.PLAYWRIGHT_SERVICE_URL:
-        import httpx
+    if not settings.PLAYWRIGHT_SERVICE_URL:
+        logger.error("PLAYWRIGHT_SERVICE_URL is not configured — cannot dispatch execution")
+        execution.status = "FAILED"
+        execution.error_message = "Playwright execution service is not configured. Please set PLAYWRIGHT_SERVICE_URL environment variable."
+        await db.commit()
+        raise HTTPException(
+            status_code=503,
+            detail="Playwright execution service is not configured. Please configure PLAYWRIGHT_SERVICE_URL.",
+        )
+
+    import httpx
+    try:
         async with httpx.AsyncClient(timeout=30) as client:
-            await client.post(
+            resp = await client.post(
                 f"{settings.PLAYWRIGHT_SERVICE_URL}/execute",
                 json={
                     "execution_id": execution_id,
@@ -176,22 +185,32 @@ async def execute_test_cases(
                 },
                 headers={"X-Internal-Secret": settings.RAILWAY_INTERNAL_SECRET},
             )
+            if resp.status_code >= 400:
+                logger.error(f"Playwright service returned {resp.status_code}: {resp.text}")
+                execution.status = "FAILED"
+                execution.error_message = f"Playwright service error: {resp.text}"
+                await db.commit()
+                raise HTTPException(status_code=502, detail=f"Playwright service error: {resp.text}")
+    except httpx.ConnectError:
+        logger.exception("Could not connect to Playwright service")
+        execution.status = "FAILED"
+        execution.error_message = "Could not connect to Playwright execution service. Is it running?"
+        await db.commit()
+        raise HTTPException(status_code=503, detail="Could not connect to Playwright execution service")
+    except Exception as e:
+        logger.exception(f"Failed to dispatch execution: {e}")
+        execution.status = "FAILED"
+        execution.error_message = str(e)
+        await db.commit()
+        raise HTTPException(status_code=500, detail=f"Failed to dispatch execution: {str(e)}")
 
-        return {
-            "execution_id": execution_id,
-            "status": "QUEUED",
-            "sse_url": f"{settings.PLAYWRIGHT_SERVICE_URL}/sse/{execution_id}",
-            "total_test_cases": len(plan_tcs),
-        }
-
-    from app.services.playwright_service import PlaywrightExecutor
-    executor = PlaywrightExecutor(get_async_session())
-    background_tasks.add_task(executor.execute, execution_id, plan, headless)
+    execution.status = "RUNNING"
+    await db.commit()
 
     return {
         "execution_id": execution_id,
-        "status": "QUEUED",
-        "message": f"Execution started in {'headless' if headless else 'headed'} mode.",
+        "status": "RUNNING",
+        "sse_url": f"{settings.PLAYWRIGHT_SERVICE_URL}/sse/{execution_id}",
         "total_test_cases": len(plan_tcs),
     }
 
@@ -320,7 +339,6 @@ async def list_executions(
 @router.post("/{execution_id}/rerun")
 async def rerun_execution(
     execution_id: str,
-    background_tasks: BackgroundTasks,
     mode_req: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -401,10 +419,20 @@ async def rerun_execution(
 
     settings = get_settings()
 
-    if settings.PLAYWRIGHT_SERVICE_URL:
-        import httpx
+    if not settings.PLAYWRIGHT_SERVICE_URL:
+        logger.error("PLAYWRIGHT_SERVICE_URL is not configured — cannot dispatch rerun")
+        new_execution.status = "FAILED"
+        new_execution.error_message = "Playwright execution service is not configured. Please set PLAYWRIGHT_SERVICE_URL environment variable."
+        await db.commit()
+        raise HTTPException(
+            status_code=503,
+            detail="Playwright execution service is not configured. Please configure PLAYWRIGHT_SERVICE_URL.",
+        )
+
+    import httpx
+    try:
         async with httpx.AsyncClient(timeout=30) as client:
-            await client.post(
+            resp = await client.post(
                 f"{settings.PLAYWRIGHT_SERVICE_URL}/execute",
                 json={
                     "execution_id": new_execution.id,
@@ -413,22 +441,32 @@ async def rerun_execution(
                 },
                 headers={"X-Internal-Secret": settings.RAILWAY_INTERNAL_SECRET},
             )
+            if resp.status_code >= 400:
+                logger.error(f"Playwright service returned {resp.status_code}: {resp.text}")
+                new_execution.status = "FAILED"
+                new_execution.error_message = f"Playwright service error: {resp.text}"
+                await db.commit()
+                raise HTTPException(status_code=502, detail=f"Playwright service error: {resp.text}")
+    except httpx.ConnectError:
+        logger.exception("Could not connect to Playwright service")
+        new_execution.status = "FAILED"
+        new_execution.error_message = "Could not connect to Playwright execution service. Is it running?"
+        await db.commit()
+        raise HTTPException(status_code=503, detail="Could not connect to Playwright execution service")
+    except Exception as e:
+        logger.exception(f"Failed to dispatch rerun: {e}")
+        new_execution.status = "FAILED"
+        new_execution.error_message = str(e)
+        await db.commit()
+        raise HTTPException(status_code=500, detail=f"Failed to dispatch rerun: {str(e)}")
 
-        return {
-            "execution_id": new_execution.id,
-            "status": "QUEUED",
-            "sse_url": f"{settings.PLAYWRIGHT_SERVICE_URL}/sse/{new_execution.id}",
-            "total_test_cases": len(plan["test_cases"]),
-        }
-
-    from app.services.playwright_service import PlaywrightExecutor
-    executor = PlaywrightExecutor(get_async_session())
-    background_tasks.add_task(executor.execute, new_execution.id, plan, headless)
+    new_execution.status = "RUNNING"
+    await db.commit()
 
     return {
         "execution_id": new_execution.id,
-        "status": "QUEUED",
-        "message": "Re-execution started with a new execution entry.",
+        "status": "RUNNING",
+        "sse_url": f"{settings.PLAYWRIGHT_SERVICE_URL}/sse/{new_execution.id}",
         "total_test_cases": len(plan["test_cases"]),
     }
 
@@ -496,6 +534,35 @@ async def stream_execution(
         break
     if not user:
         raise HTTPException(status_code=401)
+
+    if settings.PLAYWRIGHT_SERVICE_URL:
+        import httpx
+
+        async def proxy_event_generator():
+            try:
+                async with httpx.AsyncClient(timeout=300) as client:
+                    async with client.stream(
+                        "GET",
+                        f"{settings.PLAYWRIGHT_SERVICE_URL}/sse/{execution_id}",
+                        params={"token": token},
+                    ) as response:
+                        async for chunk in response.aiter_bytes():
+                            if await request.is_disconnected():
+                                break
+                            yield chunk
+            except Exception as e:
+                logger.warning(f"SSE proxy from Railway failed: {e}")
+                yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+
+        return StreamingResponse(
+            proxy_event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     async def event_generator():
         async for event in SSEManager.subscribe(execution_id):
